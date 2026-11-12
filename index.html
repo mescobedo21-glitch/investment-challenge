@@ -49,14 +49,63 @@ function report(){
  out+="\nTEACHER RUBRIC (100 POINTS)\nMission 1: Savings, inflation, compounding — 15\nMission 2: Portfolio, diversification, fees — 25\nMission 3: Markets, profit, bonds — 20\nMission 4: Retirement and accounts — 15\nMission 5: Recommendations and sources — 25\n";
  return out;
 }
-function download(){const blob=new Blob([report()],{type:"text/plain;charset=utf-8"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="Investment_Challenge_Student_Report.txt";document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+function download(){
+  // Create a real, multipage PDF without third-party libraries or network access.
+  const raw=report().replace(/\r/g,"");
+  const ascii=raw.normalize("NFKD").replace(/[\u0300-\u036f]/g,"").replace(/[—–]/g,"-").replace(/[“”]/g,'"').replace(/[‘’]/g,"'").replace(/[^\x0A\x20-\x7E]/g,"?");
+  const lines=[];
+  for(const paragraph of ascii.split("\n")){
+    if(!paragraph){lines.push("");continue}
+    let remaining=paragraph;
+    while(remaining.length>92){
+      let cut=remaining.lastIndexOf(" ",92);
+      if(cut<25)cut=92;
+      lines.push(remaining.slice(0,cut));
+      remaining=remaining.slice(cut).trimStart();
+    }
+    lines.push(remaining);
+  }
+  const perPage=55;
+  const pages=[];
+  for(let i=0;i<lines.length;i+=perPage)pages.push(lines.slice(i,i+perPage));
+  const objects=[null];
+  const add=x=>{objects.push(x);return objects.length-1};
+  const catalog=add("");
+  const pagesRoot=add("");
+  const font=add("<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>");
+  const pageRefs=[];
+  const enc=x=>x.replace(/\\/g,"\\\\").replace(/\(/g,"\\(").replace(/\)/g,"\\)");
+  pages.forEach((page,p)=>{
+    const commands=["BT","/F1 9 Tf","12 TL","45 748 Td"];
+    page.forEach((line,i)=>{if(i)commands.push("T*");commands.push("("+enc(line)+") Tj")});
+    commands.push("ET","BT","/F1 8 Tf","45 35 Td","("+enc("Page "+(p+1)+" of "+pages.length)+") Tj","ET");
+    const stream=commands.join("\n")+"\n";
+    const streamRef=add("<< /Length "+stream.length+" >>\nstream\n"+stream+"endstream");
+    pageRefs.push(add("<< /Type /Page /Parent "+pagesRoot+" 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 "+font+" 0 R >> >> /Contents "+streamRef+" 0 R >>"));
+  });
+  objects[catalog]="<< /Type /Catalog /Pages "+pagesRoot+" 0 R >>";
+  objects[pagesRoot]="<< /Type /Pages /Kids ["+pageRefs.map(n=>n+" 0 R").join(" ")+"] /Count "+pageRefs.length+" >>";
+  let data="%PDF-1.4\n";
+  const offsets=[0];
+  for(let i=1;i<objects.length;i++){offsets[i]=data.length;data+=i+" 0 obj\n"+objects[i]+"\nendobj\n"}
+  const xref=data.length;
+  data+="xref\n0 "+objects.length+"\n0000000000 65535 f \n";
+  for(let i=1;i<objects.length;i++)data+=String(offsets[i]).padStart(10,"0")+" 00000 n \n";
+  data+="trailer\n<< /Size "+objects.length+" /Root "+catalog+" 0 R >>\nstartxref\n"+xref+"\n%%EOF";
+  const blob=new Blob([data],{type:"application/pdf"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="Investment_Challenge_Student_Report.pdf";
+  document.body.append(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
 function finish(){
  document.getElementById("count").textContent="All questions";
  document.getElementById("mission").textContent="Finished";
  document.getElementById("progress").style.width="100%";
  const done=steps.filter((_,i)=>String(state[i]??"").trim()).length;
  const g=choiceGrade();
- document.getElementById("screen").innerHTML=`<h1>🎉 You're finished!</h1><p class="intro">You answered <b>${done} of ${steps.length}</b> questions. Download your report and turn it in on Google Classroom.</p><h2>Multiple-choice score: ${g.correct} / ${g.total} (${g.percent}%)</h2><p class="intro">This is only the automatically graded multiple-choice portion. Your teacher will review math, written answers, and your investment mix. It is <b>not</b> your final score out of 100.</p><h2>100-point rubric</h2><table class="endtable"><tr><td>Save & compound growth</td><td>15</td></tr><tr><td>Invest & diversify</td><td>25</td></tr><tr><td>Market decisions & math</td><td>20</td></tr><tr><td>Retirement accounts</td><td>15</td></tr><tr><td>Client advice & sources</td><td>25</td></tr><tr><td><b>Total</b></td><td>100</td></tr></table><p class="tiny">Your teacher grades your explanations and choices. The multiple-choice subtotal is automatic; your teacher determines your final grade.</p><div class="buttons"><button class="secondary" id="review">← Review answers</button><button class="primary" id="download">⬇ Download report</button></div><p class="tiny">Saved only in this browser. Download before switching devices.</p>`;
+ document.getElementById("screen").innerHTML=`<h1>🎉 You're finished!</h1><p class="intro">You answered <b>${done} of ${steps.length}</b> questions. Download your PDF report and turn it in on Google Classroom.</p><h2>Multiple-choice score: ${g.correct} / ${g.total} (${g.percent}%)</h2><p class="intro">This is only the automatically graded multiple-choice portion. Your teacher will review math, written answers, and your investment mix. It is <b>not</b> your final score out of 100.</p><h2>100-point rubric</h2><table class="endtable"><tr><td>Save & compound growth</td><td>15</td></tr><tr><td>Invest & diversify</td><td>25</td></tr><tr><td>Market decisions & math</td><td>20</td></tr><tr><td>Retirement accounts</td><td>15</td></tr><tr><td>Client advice & sources</td><td>25</td></tr><tr><td><b>Total</b></td><td>100</td></tr></table><p class="tiny">Your teacher grades your explanations and choices. The multiple-choice subtotal is automatic; your teacher determines your final grade.</p><div class="buttons"><button class="secondary" id="review">← Review answers</button><button class="primary" id="download">⬇ Download PDF report</button></div><p class="tiny">Saved only in this browser. Download before switching devices.</p>`;
  document.getElementById("review").onclick=()=>{index=steps.length-1;render()};
  document.getElementById("download").onclick=download;
 }
